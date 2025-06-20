@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Game #{{ game.id }} Details</title>
+    <title>Game #{{ game_id }} Details</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -23,44 +23,6 @@
             margin-bottom: 20px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
-        .card {
-            background-color: #16213e;
-            border: none;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            margin-bottom: 20px;
-        }
-        .game-header {
-            border-bottom: 2px solid #2d3747;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-        }
-        .multiplier {
-            font-size: 2.5rem;
-            font-weight: bold;
-        }
-        .win .multiplier {
-            color: #2ecc71;
-        }
-        .loss .multiplier {
-            color: #e74c3c;
-        }
-        .player-row {
-            border-bottom: 1px solid #2d3747;
-            padding: 12px 0;
-        }
-        .player-row:last-child {
-            border-bottom: none;
-        }
-        .player-username {
-            font-weight: 500;
-        }
-        .positive-profit {
-            color: #2ecc71;
-        }
-        .negative-profit {
-            color: #e74c3c;
-        }
         .back-btn {
             background: linear-gradient(135deg, #3498db, #2980b9);
             border: none;
@@ -68,16 +30,17 @@
         .back-btn:hover {
             background: linear-gradient(135deg, #2980b9, #3498db);
         }
-        .table-header {
-            background-color: #0f3460;
-            color: #fff;
-            font-weight: 600;
+        .placeholder-content {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            margin-top: 30px;
         }
-        .win-bg {
-            background-color: rgba(46, 204, 113, 0.1);
-        }
-        .loss-bg {
-            background-color: rgba(231, 76, 60, 0.1);
+        .placeholder-icon {
+            font-size: 4rem;
+            color: #3498db;
+            margin-bottom: 20px;
         }
     </style>
 </head>
@@ -89,48 +52,25 @@
                     <a href="/" class="btn back-btn me-3">
                         <i class="fas fa-arrow-left"></i>
                     </a>
-                    Game #{{ game.id }} Details
+                    Game #{{ game_id }} Details
                 </h1>
-                <div class="multiplier {{ 'win' if game.multiplier >= 1.5 else 'loss' }}">
-                    {{ game.multiplier }}x
-                </div>
             </div>
-            <div class="mt-3 text-muted">
-                <i class="far fa-clock"></i> {{ game.date }}
+            <div class="mt-3">
+                <p class="mb-0">Detailed player data not currently stored</p>
             </div>
         </div>
         
-        <div class="card">
-            <div class="card-body">
-                <h5 class="card-title mb-4">Players</h5>
-                
-                <div class="table-responsive">
-                    <table class="table table-borderless">
-                        <thead>
-                            <tr class="table-header">
-                                <th>Player</th>
-                                <th>Multiplier</th>
-                                <th>Amount</th>
-                                <th class="text-end">Profit</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for player in game.players %}
-                            <tr class="player-row {{ 'win-bg' if player.profit > 0 else 'loss-bg' }}">
-                                <td class="player-username">
-                                    <i class="fas fa-user me-2"></i> {{ player.username }}
-                                </td>
-                                <td>{{ player.multiplier }}</td>
-                                <td>{{ player.amount }}</td>
-                                <td class="text-end {{ 'positive-profit' if player.profit > 0 else 'negative-profit' }}">
-                                    {{ player.profit|abs }}{{ '+' if player.profit > 0 else '-' }}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+        <div class="placeholder-content">
+            <div class="placeholder-icon">
+                <i class="fas fa-database"></i>
             </div>
+            <h3>Player Data Storage Not Implemented</h3>
+            <p class="lead">
+                To view detailed player information, we would need to store additional data in Google Sheets.
+            </p>
+            <p>
+                This can be implemented by extending the data collection script to capture player details.
+            </p>
         </div>
     </div>
     
