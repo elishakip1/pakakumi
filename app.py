@@ -88,19 +88,30 @@ def get_game_data():
             return []
             
         logger.info(f"Opening sheet with ID: {SHEET_ID[:5]}...{SHEET_ID[-5:]}")
-        sh = gc.open_by_key(SHEET_ID)
+        try:
+            sh = gc.open_by_key(SHEET_ID)
+        except gspread.SpreadsheetNotFound:
+            logger.error(f"Spreadsheet with ID {SHEET_ID[:5]}...{SHEET_ID[-5:]} not found!")
+            return []
         
+        # Create worksheet if it doesn't exist
         try:
             logger.info("Accessing 'Games' worksheet")
             games_sheet = sh.worksheet("Games")
         except gspread.WorksheetNotFound:
-            logger.error("'Games' worksheet not found in sheet")
-            return []
+            logger.info("'Games' worksheet not found - creating a new one")
+            try:
+                games_sheet = sh.add_worksheet(title="Games", rows=100, cols=4)
+                games_sheet.append_row(["Game ID", "Multiplier", "Date", "Scraped At"])
+                logger.info("Created new 'Games' worksheet with headers")
+                return []  # Return empty since we just created it
+            except Exception as e:
+                logger.error(f"Failed to create worksheet: {str(e)}")
+                return []
         except gspread.APIError as e:
             logger.error(f"Google Sheets API error: {str(e)}")
             return []
         
-        # Get all games (skip header)
         logger.info("Fetching data from worksheet...")
         try:
             all_games = games_sheet.get_all_values()
@@ -111,7 +122,7 @@ def get_game_data():
         logger.info(f"Found {len(all_games)} rows in sheet")
         
         if len(all_games) < 2:  # Header + at least one row
-            logger.error(f"Only {len(all_games)} rows found. Need at least 2 rows (header + data)")
+            logger.info("Sheet has headers but no game data yet")
             return []
         
         # Format data
