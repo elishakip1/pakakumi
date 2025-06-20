@@ -8,17 +8,17 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
+# Configuration
+MAX_GAMES = 5000  # Make this a constant
+GAMES_PER_REQUEST = 100
+UPDATE_INTERVAL = 300  # 5 minutes in seconds
+REQUEST_DELAY = 0.1  # Delay between requests to avoid rate limiting
+
 # Global cache for game data
 game_cache = []
 cache_lock = threading.Lock()
 last_updated = None
 is_updating = False
-
-# Configuration
-MAX_GAMES = 5000
-GAMES_PER_REQUEST = 100
-UPDATE_INTERVAL = 300  # 5 minutes in seconds
-REQUEST_DELAY = 0.1  # Delay between requests to avoid rate limiting
 
 def parse_game_page(html_content, game_id):
     """Parse game page HTML to extract game data"""
@@ -55,33 +55,35 @@ def parse_game_page(html_content, game_id):
                         game_data['date'] = value
     
     # Extract player data
-    player_table = soup.find('div', string='User') and soup.find('div', string='User').find_parent('div', recursive=False)
-    if player_table:
-        player_rows = player_table.find_all('div', recursive=False)[1:]
-        
-        for row in player_rows:
-            cols = row.find_all('div', recursive=False)
-            if len(cols) >= 3:
-                username = cols[0].get_text(strip=True)
-                multiplier = cols[1].get_text(strip=True)
-                amount = cols[2].get_text(strip=True)
-                profit = cols[3].get_text(strip=True) if len(cols) > 3 else ""
-                
-                try:
-                    # Handle negative profits
-                    if profit.startswith('-'):
-                        profit_value = -float(profit[1:].replace(',', ''))
-                    else:
-                        profit_value = float(profit.replace(',', ''))
-                except (ValueError, TypeError):
-                    profit_value = 0
-                
-                game_data['players'].append({
-                    'username': username,
-                    'multiplier': multiplier,
-                    'amount': amount,
-                    'profit': profit_value
-                })
+    user_header = soup.find('div', string='User')
+    if user_header:
+        player_table = user_header.find_parent('div', recursive=False)
+        if player_table:
+            player_rows = player_table.find_all('div', recursive=False)[1:]
+            
+            for row in player_rows:
+                cols = row.find_all('div', recursive=False)
+                if len(cols) >= 3:
+                    username = cols[0].get_text(strip=True)
+                    multiplier = cols[1].get_text(strip=True)
+                    amount = cols[2].get_text(strip=True)
+                    profit = cols[3].get_text(strip=True) if len(cols) > 3 else ""
+                    
+                    try:
+                        # Handle negative profits
+                        if profit.startswith('-'):
+                            profit_value = -float(profit[1:].replace(',', ''))
+                        else:
+                            profit_value = float(profit.replace(',', ''))
+                    except (ValueError, TypeError):
+                        profit_value = 0
+                    
+                    game_data['players'].append({
+                        'username': username,
+                        'multiplier': multiplier,
+                        'amount': amount,
+                        'profit': profit_value
+                    })
     
     return game_data
 
@@ -94,6 +96,8 @@ def fetch_game_data(game_id):
         })
         if response.status_code == 200:
             return parse_game_page(response.text, game_id)
+        else:
+            print(f"Failed to fetch game {game_id}: Status {response.status_code}")
     except Exception as e:
         print(f"Error fetching game {game_id}: {str(e)}")
     return None
@@ -110,6 +114,8 @@ def get_latest_game_id():
             if game_links:
                 latest_game = game_links[0]['href'].split('/')[-1]
                 return int(latest_game)
+        else:
+            print(f"Failed to get homepage: Status {response.status_code}")
     except Exception as e:
         print(f"Error getting latest game ID: {str(e)}")
     return None
@@ -192,7 +198,12 @@ def index():
         updated = last_updated.strftime("%Y-%m-%d %H:%M:%S") if last_updated else "Never"
         updating = is_updating
     
-    return render_template('index.html', games=games, last_updated=updated, is_updating=updating)
+    # Pass MAX_GAMES to template to fix UndefinedError
+    return render_template('index.html', 
+                           games=games, 
+                           last_updated=updated, 
+                           is_updating=updating,
+                           MAX_GAMES=MAX_GAMES)
 
 @app.route('/game/<int:game_id>')
 def game_details(game_id):
@@ -230,5 +241,7 @@ def status():
 
 if __name__ == '__main__':
     # Do an initial cache update
+    print("Starting initial cache update...")
     update_game_cache()
+    print("Initial cache update completed")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
