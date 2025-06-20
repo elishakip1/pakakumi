@@ -2,23 +2,25 @@ import os
 import requests
 import time
 import threading
-from datetime import datetime, timedelta
-from flask import Flask, render_template, jsonify, request
+from datetime import datetime
+from flask import Flask, render_template, jsonify
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-# Configuration
-MAX_GAMES = 5000  # Make this a constant
-GAMES_PER_REQUEST = 100
-UPDATE_INTERVAL = 300  # 5 minutes in seconds
-REQUEST_DELAY = 0.1  # Delay between requests to avoid rate limiting
+# Configuration - Reduced initial load for faster deployment
+INITIAL_GAMES = 200  # Only fetch 200 games initially
+MAX_GAMES = 5000     # Maximum cache size
+GAMES_PER_UPDATE = 50  # Games to fetch per background update
+REQUEST_DELAY = 0.1   # Delay between requests
 
 # Global cache for game data
 game_cache = []
 cache_lock = threading.Lock()
 last_updated = None
 is_updating = False
+current_progress = 0
+total_to_fetch = 0
 
 def parse_game_page(html_content, game_id):
     """Parse game page HTML to extract game data"""
@@ -93,7 +95,7 @@ def fetch_game_data(game_id):
     try:
         response = requests.get(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+        }, timeout=10)
         if response.status_code == 200:
             return parse_game_page(response.text, game_id)
         else:
@@ -107,7 +109,7 @@ def get_latest_game_id():
     try:
         response = requests.get("https://play.pakakumi.com/", headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+        }, timeout=10)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             game_links = soup.select('a[href^="/games/"]')
@@ -122,16 +124,17 @@ def get_latest_game_id():
 
 def update_game_cache():
     """Update the game cache by fetching new games"""
-    global game_cache, last_updated, is_updating
+    global game_cache, last_updated, is_updating, current_progress, total_to_fetch
     
     with cache_lock:
         if is_updating:
             return
         is_updating = True
+        current_progress = 0
     
     try:
-        start_time = time.time()
         print("Starting cache update...")
+        start_time = time.time()
         
         # Get the latest game ID
         latest_id = get_latest_game_id()
@@ -140,19 +143,35 @@ def update_game_cache():
             return
         
         # Determine starting ID for this update
-        start_id = latest_id - GAMES_PER_REQUEST + 1
-        if not game_cache:
-            # If cache is empty, fetch the most recent games
-            start_id = latest_id - MAX_GAMES + 1
-            if start_id < 1:
-                start_id = 1
+        start_id = latest_id
+        if game_cache:
+            # If we have cache, find the latest ID we have
+            latest_cached_id = max(game['id'] for game in game_cache)
+            start_id = latest_cached_id + 1
+            games_to_fetch = min(latest_id - latest_cached_id, GAMES_PER_UPDATE)
+        else:
+            # Initial load - only fetch most recent games
+            start_id = latest_id - INITIAL_GAMES + 1
+            games_to_fetch = INITIAL_GAMES
         
+        if start_id < 1:
+            start_id = 1
+        
+        total_to_fetch = min(games_to_fetch, latest_id - start_id + 1)
+        if total_to_fetch <= 0:
+            print("No new games to fetch")
+            return
+            
         # Fetch new games
         new_games = []
-        for game_id in range(start_id, latest_id + 1):
-            # Skip if we already have this game in cache
-            if any(game['id'] == game_id for game in game_cache):
-                continue
+        for i, game_id in enumerate(range(start_id, start_id + total_to_fetch)):
+            # Update progress
+            with cache_lock:
+                current_progress = i + 1
+            
+            # Skip if beyond current game range
+            if game_id > latest_id:
+                break
                 
             game_data = fetch_game_data(game_id)
             if game_data:
@@ -163,7 +182,7 @@ def update_game_cache():
         
         # Add new games to cache
         with cache_lock:
-            # Prepend new games (so newest are first)
+            # Newest games first
             game_cache = new_games + game_cache
             
             # Trim cache to MAX_GAMES
@@ -171,6 +190,7 @@ def update_game_cache():
                 game_cache = game_cache[:MAX_GAMES]
                 
             last_updated = datetime.now()
+            current_progress = 0  # Reset progress
         
         print(f"Cache updated with {len(new_games)} new games in {time.time()-start_time:.2f} seconds")
         
@@ -182,9 +202,13 @@ def update_game_cache():
 
 def background_updater():
     """Background thread to periodically update the cache"""
+    # Do an initial update immediately
+    update_game_cache()
+    
+    # Then update every 5 minutes
     while True:
+        time.sleep(300)  # 5 minutes
         update_game_cache()
-        time.sleep(UPDATE_INTERVAL)
 
 # Start background updater thread
 updater_thread = threading.Thread(target=background_updater, daemon=True)
@@ -197,12 +221,17 @@ def index():
         games = game_cache
         updated = last_updated.strftime("%Y-%m-%d %H:%M:%S") if last_updated else "Never"
         updating = is_updating
+        progress = current_progress
+        total = total_to_fetch
+        loaded_games = len(games)
     
-    # Pass MAX_GAMES to template to fix UndefinedError
     return render_template('index.html', 
                            games=games, 
                            last_updated=updated, 
                            is_updating=updating,
+                           progress=progress,
+                           total=total,
+                           loaded_games=loaded_games,
                            MAX_GAMES=MAX_GAMES)
 
 @app.route('/game/<int:game_id>')
@@ -236,12 +265,10 @@ def status():
         return jsonify({
             'game_count': len(game_cache),
             'last_updated': last_updated.isoformat() if last_updated else None,
-            'is_updating': is_updating
+            'is_updating': is_updating,
+            'progress': current_progress,
+            'total': total_to_fetch
         })
 
 if __name__ == '__main__':
-    # Do an initial cache update
-    print("Starting initial cache update...")
-    update_game_cache()
-    print("Initial cache update completed")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
