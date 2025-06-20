@@ -9,6 +9,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from bs4 import BeautifulSoup
 from datetime import datetime
+import re
 
 # Configure logging
 logging.basicConfig(
@@ -23,19 +24,26 @@ SHEET_ID = os.environ.get('SHEET_ID')
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 URL = "https://play.pakakumi.com/"
 MAX_GAMES = 5000
-REQUEST_DELAY = 1.0  # Increased delay
-RETRY_LIMIT = 3
+REQUEST_DELAY = 1.0
+RETRY_LIMIT = 5  # Increased retries
 
 # Log environment variables
 logger.info(f"SHEET_ID: {SHEET_ID[:5]}...{SHEET_ID[-5:] if SHEET_ID else 'None'}")
 logger.info(f"GOOGLE_CREDS_JSON: {'SET' if 'GOOGLE_CREDS_JSON' in os.environ else 'MISSING'}")
 
-# Random User-Agents
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36'
-]
+# Enhanced headers
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1'
+}
 
 def authenticate_google_sheets():
     """Authenticate with Google Sheets"""
@@ -66,24 +74,57 @@ def authenticate_google_sheets():
         return None
 
 def get_latest_game_id():
-    """Get latest game ID from homepage"""
+    """Get latest game ID from homepage with improved scraping"""
     for attempt in range(RETRY_LIMIT):
         try:
-            headers = {'User-Agent': random.choice(USER_AGENTS)}
-            response = requests.get(URL, headers=headers, timeout=15)
+            logger.info(f"Fetching homepage (attempt {attempt+1})")
+            response = requests.get(URL, headers=HEADERS, timeout=15)
             response.raise_for_status()
             
+            # Debug: Save HTML for inspection
+            # with open(f"homepage_{attempt}.html", "w", encoding="utf-8") as f:
+            #     f.write(response.text)
+            
             soup = BeautifulSoup(response.text, 'html.parser')
-            game_links = soup.select('a[href^="/games/"]')
+            
+            # Method 1: Try to find game links by href pattern
+            game_links = soup.find_all('a', href=re.compile(r'^/games/\d+'))
             if game_links:
                 latest_id = int(game_links[0]['href'].split('/')[-1])
-                logger.info(f"Latest game ID: {latest_id}")
+                logger.info(f"Found latest game ID via href pattern: {latest_id}")
                 return latest_id
-            else:
-                logger.warning("No game links found on homepage")
+                
+            # Method 2: Look for game containers
+            game_containers = soup.select('div.css-xy3rl8, div.css-1dbjc4n')
+            if game_containers:
+                for container in game_containers:
+                    links = container.find_all('a')
+                    if links:
+                        href = links[0].get('href', '')
+                        if href.startswith('/games/'):
+                            latest_id = int(href.split('/')[-1])
+                            logger.info(f"Found latest game ID via container: {latest_id}")
+                            return latest_id
+            
+            # Method 3: Extract from script tags (if site uses JS)
+            script_tags = soup.find_all('script')
+            for script in script_tags:
+                if script.string and 'games' in script.string:
+                    match = re.search(r'/games/(\d+)', script.string)
+                    if match:
+                        latest_id = int(match.group(1))
+                        logger.info(f"Found latest game ID via script tag: {latest_id}")
+                        return latest_id
+                        
+            logger.warning("No game links found using any method")
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response size: {len(response.text)} characters")
+            
         except Exception as e:
-            logger.error(f"Attempt {attempt+1} failed to get latest game ID: {str(e)}")
+            logger.error(f"Attempt {attempt+1} failed: {str(e)}")
             time.sleep(2)
+    
+    logger.error("All attempts to get latest game ID failed")
     return None
 
 def scrape_game(game_id):
@@ -92,19 +133,28 @@ def scrape_game(game_id):
     url = f"https://play.pakakumi.com/games/{game_id}"
     for attempt in range(RETRY_LIMIT):
         try:
-            headers = {'User-Agent': random.choice(USER_AGENTS)}
-            response = requests.get(url, headers=headers, timeout=20)
+            response = requests.get(url, headers=HEADERS, timeout=20)
             response.raise_for_status()
             
             soup = BeautifulSoup(response.text, 'html.parser')
             game_data = {'id': game_id, 'multiplier': 0.0, 'date': 'Unknown'}
             
-            # Extract round information
-            round_info = soup.find('div', string='Round Information')
+            # Extract round information - more robust method
+            round_info = soup.find('div', string=lambda t: t and 'Round Information' in t)
+            if not round_info:
+                # Alternative method using class names
+                round_info = soup.select_one('div.css-1dbjc4n.r-13awgt0')
+            
             if round_info:
-                container = round_info.find_parent('div', recursive=False)
+                container = round_info.parent
+                if not container:
+                    container = round_info.find_parent('div', recursive=False)
+                    
                 if container:
-                    rows = container.find_all('div', recursive=False)[1].find_all('div', recursive=False)
+                    # Find all direct child divs
+                    rows = container.find_all('div', recursive=False)
+                    if len(rows) > 1:
+                        rows = rows[1].find_all('div', recursive=False)
                     
                     for row in rows:
                         key_div = row.find('div', recursive=False)
@@ -114,12 +164,12 @@ def scrape_game(game_id):
                             key = key_div.get_text(strip=True)
                             value = value_div.get_text(strip=True)
                             
-                            if key == 'Busted At':
+                            if 'Busted At' in key:
                                 try:
                                     game_data['multiplier'] = float(value.replace('x', ''))
                                 except ValueError:
                                     pass
-                            elif key == 'Date':
+                            elif 'Date' in key:
                                 game_data['date'] = value
             
             # Add scrape timestamp
@@ -162,15 +212,19 @@ def update_sheet(gc):
             logger.error("Failed to get latest game ID")
             return 0
             
-        # Determine starting ID
-        if existing_ids:
-            start_id = max(existing_ids) + 1
-            logger.info(f"Starting from game ID: {start_id} (after last existing game)")
+        # If no existing games, start from a known recent game
+        if not existing_ids:
+            logger.warning("No existing games found - starting from recent game")
+            start_id = max(1, latest_id - 100)
         else:
-            start_id = max(1, latest_id - 100)  # Start with recent 100 games
-            logger.info(f"Starting from game ID: {start_id} (first run)")
+            start_id = max(existing_ids) + 1
         
-        logger.info(f"Fetching games from {start_id} to {latest_id}")
+        # Safety check
+        if start_id > latest_id:
+            logger.info("No new games to fetch")
+            return 0
+            
+        logger.info(f"Fetching games from {start_id} to {latest_id} ({latest_id - start_id + 1} games)")
         
         # Scrape new games
         new_games = []
@@ -185,8 +239,8 @@ def update_sheet(gc):
                 ])
             time.sleep(REQUEST_DELAY)
             
-            # Save progress every 10 games
-            if len(new_games) % 10 == 0 and new_games:
+            # Save progress every 5 games
+            if len(new_games) % 5 == 0 and new_games:
                 try:
                     games_sheet.append_rows(new_games)
                     logger.info(f"Added {len(new_games)} games so far...")
@@ -201,17 +255,6 @@ def update_sheet(gc):
                 logger.info(f"Added {len(new_games)} new games to sheet")
             except Exception as e:
                 logger.error(f"Error saving final batch: {str(e)}")
-        
-        # Trim sheet to MAX_GAMES
-        try:
-            all_games = games_sheet.get_all_values()[1:]  # Skip header
-            if len(all_games) > MAX_GAMES:
-                rows_to_delete = len(all_games) - MAX_GAMES
-                logger.info(f"Trimming sheet by deleting {rows_to_delete} old games...")
-                games_sheet.delete_rows(2, rows_to_delete + 1)  # +1 for header offset
-                logger.info(f"Trimmed sheet to {MAX_GAMES} games")
-        except Exception as e:
-            logger.error(f"Error trimming sheet: {str(e)}")
         
         return len(new_games)
     except Exception as e:
