@@ -1,86 +1,117 @@
 import os
-import gspread
-from flask import Flask, render_template
-from google.oauth2.service_account import Credentials
-import traceback
 import sys
+import time
+import logging
+import traceback
+import gspread
+from flask import Flask, render_template, jsonify
+from google.oauth2.service_account import Credentials
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configuration
-try:
-    SHEET_ID = os.environ['SHEET_ID']
-    print(f"Using Sheet ID: {SHEET_ID[:5]}...{SHEET_ID[-5:]}")
-except KeyError:
-    print("ERROR: SHEET_ID environment variable not set!")
-    SHEET_ID = None
+# Environment variables - with detailed debugging
+def get_env_vars():
+    """Get and log environment variables"""
+    env_vars = {
+        'SHEET_ID': os.environ.get('SHEET_ID'),
+        'PORT': os.environ.get('PORT', '5000'),
+        'GOOGLE_CREDS_JSON': 'SET' if 'GOOGLE_CREDS_JSON' in os.environ else 'MISSING'
+    }
+    
+    logger.info("Environment Variables:")
+    for key, value in env_vars.items():
+        logger.info(f"  {key}: {value[:20] + '...' if value and len(value) > 20 else value}")
+    
+    return env_vars
 
-try:
-    PORT = os.environ['PORT']
-except KeyError:
-    PORT = 5000
-
+# Get env vars early
+env = get_env_vars()
+SHEET_ID = env['SHEET_ID']
+PORT = int(env['PORT'])
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 MAX_GAMES = 5000
 
 def authenticate_google_sheets():
-    """Authenticate with Google Sheets"""
+    """Authenticate with Google Sheets with detailed debugging"""
+    logger.info("Authenticating with Google Sheets...")
+    
     try:
         creds_json = os.environ.get("GOOGLE_CREDS_JSON")
         if not creds_json:
-            print("ERROR: GOOGLE_CREDS_JSON environment variable not set!")
+            logger.error("GOOGLE_CREDS_JSON environment variable is missing!")
             return None
             
-        if isinstance(creds_json, str):
+        # Try to parse JSON to validate
+        try:
             import json
-            try:
-                creds_json = json.loads(creds_json)
-            except json.JSONDecodeError as e:
-                print(f"Invalid JSON in GOOGLE_CREDS_JSON: {str(e)}")
-                return None
+            parsed_creds = json.loads(creds_json)
+            logger.info("GOOGLE_CREDS_JSON parsed successfully")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in GOOGLE_CREDS_JSON: {str(e)}")
+            return None
         
-        creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
-        return gspread.authorize(creds)
+        try:
+            creds = Credentials.from_service_account_info(parsed_creds, scopes=SCOPES)
+            gc = gspread.authorize(creds)
+            logger.info("Google Sheets authentication successful")
+            return gc
+        except Exception as e:
+            logger.error(f"Authentication failed: {str(e)}")
+            traceback.print_exc()
+            return None
     except Exception as e:
-        print(f"Authentication error: {str(e)}")
+        logger.error(f"Unexpected authentication error: {str(e)}")
         traceback.print_exc()
         return None
 
 def get_game_data():
-    """Retrieve game data from Google Sheets"""
+    """Retrieve game data from Google Sheets with detailed logging"""
+    logger.info("Retrieving game data from Google Sheets...")
+    
     if not SHEET_ID:
-        print("SHEET_ID not set, skipping data retrieval")
+        logger.error("SHEET_ID not set, skipping data retrieval")
         return []
     
     try:
+        start_time = time.time()
         gc = authenticate_google_sheets()
         if not gc:
-            print("Google Sheets authentication failed")
+            logger.error("Google Sheets authentication failed")
             return []
             
-        print("Opening Google Sheet...")
+        logger.info(f"Opening sheet with ID: {SHEET_ID[:5]}...{SHEET_ID[-5:]}")
         sh = gc.open_by_key(SHEET_ID)
         
         try:
+            logger.info("Accessing 'Games' worksheet")
             games_sheet = sh.worksheet("Games")
-            print("Found Games worksheet")
         except gspread.WorksheetNotFound:
-            print("Games worksheet not found")
+            logger.error("'Games' worksheet not found in sheet")
             return []
         except gspread.APIError as e:
-            print(f"Google Sheets API error: {str(e)}")
+            logger.error(f"Google Sheets API error: {str(e)}")
             return []
         
         # Get all games (skip header)
-        print("Retrieving game data...")
+        logger.info("Fetching data from worksheet...")
         try:
             all_games = games_sheet.get_all_values()
         except gspread.APIError as e:
-            print(f"Error retrieving sheet data: {str(e)}")
+            logger.error(f"Error retrieving sheet data: {str(e)}")
             return []
         
+        logger.info(f"Found {len(all_games)} rows in sheet")
+        
         if len(all_games) < 2:  # Header + at least one row
-            print("No game data in sheet (less than 2 rows)")
+            logger.error(f"Only {len(all_games)} rows found. Need at least 2 rows (header + data)")
             return []
         
         # Format data
@@ -88,24 +119,21 @@ def get_game_data():
         for i, row in enumerate(all_games[1:][:MAX_GAMES]):  # Skip header
             if len(row) >= 4:
                 try:
-                    game_id = int(row[0]) if row[0] else 0
-                    multiplier = float(row[1]) if row[1] else 0.0
-                    
                     games.append({
-                        'id': game_id,
-                        'multiplier': multiplier,
+                        'id': int(row[0]),
+                        'multiplier': float(row[1]) if row[1] else 0.0,
                         'date': row[2],
                         'scraped_at': row[3]
                     })
                 except ValueError as e:
-                    print(f"Error parsing row {i+2}: {row} - {str(e)}")
+                    logger.error(f"Error parsing row {i+2}: {row} - {str(e)}")
             else:
-                print(f"Row {i+2} has insufficient columns: {row}")
+                logger.error(f"Row {i+2} has only {len(row)} columns (needs 4)")
         
-        print(f"Successfully loaded {len(games)} games from sheet")
+        logger.info(f"Successfully loaded {len(games)} games in {time.time()-start_time:.2f} seconds")
         return games
     except Exception as e:
-        print(f"Unexpected error retrieving data: {str(e)}")
+        logger.error(f"Unexpected error retrieving data: {str(e)}")
         traceback.print_exc()
         return []
 
@@ -117,12 +145,29 @@ def index():
     return render_template('index.html', 
                            games=games,
                            game_count=game_count,
-                           MAX_GAMES=MAX_GAMES)
+                           MAX_GAMES=MAX_GAMES,
+                           SHEET_ID=SHEET_ID)
 
 @app.route('/game/<int:game_id>')
 def game_details(game_id):
     """Show game details placeholder"""
-    return render_template('game_details.html', game_id=game_id)
+    return render_template('game_details.html', 
+                           game_id=game_id,
+                           SHEET_ID=SHEET_ID)
+
+@app.route('/debug')
+def debug_info():
+    """Debug information endpoint"""
+    debug_data = {
+        'env': {
+            'SHEET_ID': SHEET_ID,
+            'PORT': PORT,
+            'GOOGLE_CREDS_JSON_set': 'GOOGLE_CREDS_JSON' in os.environ
+        },
+        'status': 'running',
+        'timestamp': time.time()
+    }
+    return jsonify(debug_data)
 
 @app.route('/health')
 def health_check():
@@ -130,10 +175,9 @@ def health_check():
     return "OK", 200
 
 if __name__ == '__main__':
-    # Initial debug output
-    print("Starting Pakakumi Game History Tracker")
-    print(f"Python version: {sys.version}")
-    print(f"Environment variables: SHEET_ID={'set' if SHEET_ID else 'not set'}, GOOGLE_CREDS_JSON={'set' if 'GOOGLE_CREDS_JSON' in os.environ else 'not set'}")
+    logger.info("Starting Pakakumi Game History Tracker")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Running on port: {PORT}")
     
     # Run the app
-    app.run(host='0.0.0.0', port=int(PORT))
+    app.run(host='0.0.0.0', port=PORT)
