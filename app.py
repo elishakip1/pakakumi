@@ -4,7 +4,7 @@ import time
 import logging
 import traceback
 import gspread
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from google.oauth2.service_account import Credentials
 
 # Configure logging
@@ -38,6 +38,7 @@ SHEET_ID = env['SHEET_ID']
 PORT = int(env['PORT'])
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 MAX_GAMES = 5000
+DEFAULT_THRESHOLD = 2.0  # Default win threshold
 
 def authenticate_google_sheets():
     """Authenticate with Google Sheets"""
@@ -141,14 +142,16 @@ def get_game_data():
         traceback.print_exc()
         return []
 
-def calculate_streaks(games):
-    """Calculate winning and losing streaks from game data"""
+def calculate_streaks(games, win_threshold=DEFAULT_THRESHOLD):
+    """Calculate winning and losing streaks from game data with custom threshold"""
     stats = {
         'longest_win_streak': 0,
         'longest_loss_streak': 0,
         'highest_multiplier': 0,
         'win_streaks': [],
-        'loss_streaks': []
+        'loss_streaks': [],
+        'gaps': [],
+        'win_threshold': win_threshold
     }
     
     if not games:
@@ -157,16 +160,29 @@ def calculate_streaks(games):
     # Sort games by ID (chronological order)
     sorted_games = sorted(games, key=lambda x: x['id'])
     
+    # Find highest multiplier
+    stats['highest_multiplier'] = max(game['multiplier'] for game in sorted_games)
+    
     # Calculate streaks
     current_streak = 0
     current_type = None
     streak_start = sorted_games[0]['id']
     
-    # Find highest multiplier
-    stats['highest_multiplier'] = max(game['multiplier'] for game in sorted_games)
+    # Identify gaps in game IDs
+    prev_id = sorted_games[0]['id']
+    for game in sorted_games[1:]:
+        if game['id'] != prev_id + 1:
+            gap_length = game['id'] - prev_id - 1
+            stats['gaps'].append({
+                'start': prev_id + 1,
+                'end': game['id'] - 1,
+                'length': gap_length
+            })
+        prev_id = game['id']
     
+    # Calculate streaks
     for game in sorted_games:
-        is_win = game['multiplier'] >= 1.5
+        is_win = game['multiplier'] >= win_threshold
         
         if current_type is None:
             current_type = is_win
@@ -227,7 +243,8 @@ def index():
                            games=games,
                            game_count=game_count,
                            MAX_GAMES=MAX_GAMES,
-                           SHEET_ID=SHEET_ID)
+                           SHEET_ID=SHEET_ID,
+                           win_threshold=DEFAULT_THRESHOLD)
 
 @app.route('/game/<int:game_id>')
 def game_details(game_id):
@@ -239,8 +256,10 @@ def game_details(game_id):
 @app.route('/visualize')
 def visualize():
     """Data visualization dashboard"""
+    # Get threshold from query parameter or use default
+    win_threshold = request.args.get('threshold', default=DEFAULT_THRESHOLD, type=float)
     games = get_game_data()
-    stats = calculate_streaks(games)
+    stats = calculate_streaks(games, win_threshold)
     return render_template('visualize.html', 
                           stats=stats,
                           game_count=len(games),

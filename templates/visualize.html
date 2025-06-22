@@ -95,6 +95,15 @@
         .btn-primary:hover {
             background: linear-gradient(135deg, #2980b9, #3498db);
         }
+        .threshold-control {
+            background-color: #2c3e50;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .gap-row {
+            background-color: rgba(241, 196, 15, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -126,27 +135,46 @@
             <p class="mt-3">Loading game statistics...</p>
         </div>
         {% else %}
+        <!-- Threshold Control -->
+        <div class="threshold-control">
+            <h3><i class="fas fa-sliders-h"></i> Winning Threshold</h3>
+            <form id="thresholdForm" method="get">
+                <div class="input-group mb-3">
+                    <span class="input-group-text">Win Threshold:</span>
+                    <input type="number" id="winThreshold" name="threshold" class="form-control" 
+                           value="{{ stats.win_threshold }}" step="0.1" min="1.0" max="100.0">
+                    <button class="btn btn-primary" type="submit">
+                        <i class="fas fa-sync me-1"></i> Apply
+                    </button>
+                </div>
+                <p class="mb-0">
+                    Games with multiplier ≥ <strong>{{ stats.win_threshold }}x</strong> are considered wins.
+                    Change this value to analyze different scenarios.
+                </p>
+            </form>
+        </div>
+
         <!-- Summary Stats -->
         <div class="row">
             <div class="col-md-4">
                 <div class="stat-card">
                     <h3><i class="fas fa-trophy"></i> Longest Winning Streak</h3>
                     <div class="stat-value win-stat">{{ stats.longest_win_streak }}</div>
-                    <p>Consecutive games with multiplier ≥ 1.5x</p>
+                    <p>Consecutive wins (≥ {{ stats.win_threshold }}x)</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="stat-card">
                     <h3><i class="fas fa-skull"></i> Longest Losing Streak</h3>
                     <div class="stat-value loss-stat">{{ stats.longest_loss_streak }}</div>
-                    <p>Consecutive games with multiplier &lt; 1.5x</p>
+                    <p>Consecutive losses (< {{ stats.win_threshold }}x)</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="stat-card">
                     <h3><i class="fas fa-chart-line"></i> Highest Multiplier</h3>
                     <div class="stat-value">{{ stats.highest_multiplier|round(2) }}x</div>
-                    <p>Highest multiplier achieved in any game</p>
+                    <p>Highest multiplier achieved</p>
                 </div>
             </div>
         </div>
@@ -177,13 +205,13 @@
         <div class="row">
             <div class="col-md-6">
                 <div class="chart-container">
-                    <h3>Winning Streaks</h3>
+                    <h3>Winning Streaks (≥ {{ stats.win_threshold }}x)</h3>
                     <canvas id="winStreakChart"></canvas>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="chart-container">
-                    <h3>Losing Streaks</h3>
+                    <h3>Losing Streaks (< {{ stats.win_threshold }}x)</h3>
                     <canvas id="lossStreakChart"></canvas>
                 </div>
             </div>
@@ -242,6 +270,34 @@
                 </div>
             </div>
         </div>
+
+        <!-- Missing Games Section -->
+        {% if stats.gaps %}
+        <div class="chart-container">
+            <h3><i class="fas fa-search-minus"></i> Missing Game IDs</h3>
+            <p>Detected {{ stats.gaps|length }} gaps in game sequence</p>
+            <div class="table-responsive">
+                <table class="streak-table">
+                    <thead>
+                        <tr>
+                            <th>Start ID</th>
+                            <th>End ID</th>
+                            <th>Missing Count</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for gap in stats.gaps %}
+                        <tr class="gap-row">
+                            <td>#{{ gap.start }}</td>
+                            <td>#{{ gap.end }}</td>
+                            <td>{{ gap.length }} games</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
         {% endif %}
     </div>
 
