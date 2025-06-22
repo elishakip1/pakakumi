@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pakakumi Game Statistics</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #1a1a2e;
+            color: #e6e6e6;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container {
+            max-width: 1400px;
+            margin-top: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #0f3460, #1a1a2e);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        .stat-card {
+            background-color: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            height: 100%;
+        }
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .win-stat {
+            color: #2ecc71;
+        }
+        .loss-stat {
+            color: #e74c3c;
+        }
+        .chart-container {
+            background-color: #16213e;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        .streak-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .streak-table th {
+            background-color: #0f3460;
+            padding: 10px;
+            text-align: left;
+        }
+        .streak-table td {
+            padding: 10px;
+            border-bottom: 1px solid #2d3747;
+        }
+        .win-row {
+            background-color: rgba(46, 204, 113, 0.1);
+        }
+        .loss-row {
+            background-color: rgba(231, 76, 60, 0.1);
+        }
+        .filter-section {
+            background-color: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .debug-info {
+            font-size: 0.8rem;
+            color: #95a5a6;
+            margin-top: 10px;
+        }
+        .btn-visualize {
+            background: linear-gradient(135deg, #9b59b6, #8e44ad);
+            border: none;
+            margin-right: 10px;
+        }
+        .btn-visualize:hover {
+            background: linear-gradient(135deg, #8e44ad, #9b59b6);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border: none;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2980b9, #3498db);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h1>
+                    <a href="/" class="btn btn-primary me-3">
+                        <i class="fas fa-arrow-left"></i>
+                    </a>
+                    Pakakumi Game Statistics
+                </h1>
+                <div>
+                    <a href="/" class="btn btn-primary">
+                        <i class="fas fa-list me-1"></i> Game List
+                    </a>
+                </div>
+            </div>
+            <div class="debug-info">
+                SHEET_ID: {{ SHEET_ID[:5] if SHEET_ID else 'None' }}...{{ SHEET_ID[-5:] if SHEET_ID else '' }}
+            </div>
+        </div>
+
+        {% if not stats.win_streaks and not stats.loss_streaks %}
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3">Loading game statistics...</p>
+        </div>
+        {% else %}
+        <!-- Summary Stats -->
+        <div class="row">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <h3><i class="fas fa-trophy"></i> Longest Winning Streak</h3>
+                    <div class="stat-value win-stat">{{ stats.longest_win_streak }}</div>
+                    <p>Consecutive games with multiplier ≥ 1.5x</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <h3><i class="fas fa-skull"></i> Longest Losing Streak</h3>
+                    <div class="stat-value loss-stat">{{ stats.longest_loss_streak }}</div>
+                    <p>Consecutive games with multiplier &lt; 1.5x</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <h3><i class="fas fa-chart-line"></i> Highest Multiplier</h3>
+                    <div class="stat-value">{{ stats.highest_multiplier|round(2) }}x</div>
+                    <p>Highest multiplier achieved in any game</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter Section -->
+        <div class="filter-section">
+            <h3><i class="fas fa-filter"></i> Filter Streaks</h3>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Show winning streaks longer than:</label>
+                        <input type="number" id="winFilter" class="form-control" value="3" min="1">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Show losing streaks longer than:</label>
+                        <input type="number" id="lossFilter" class="form-control" value="3" min="1">
+                    </div>
+                </div>
+            </div>
+            <button id="applyFilters" class="btn btn-primary">
+                <i class="fas fa-sync me-1"></i> Apply Filters
+            </button>
+        </div>
+
+        <!-- Streak Visualization -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h3>Winning Streaks</h3>
+                    <canvas id="winStreakChart"></canvas>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h3>Losing Streaks</h3>
+                    <canvas id="lossStreakChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Streak Tables -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h3>Winning Streaks Details</h3>
+                    <div class="table-responsive">
+                        <table class="streak-table">
+                            <thead>
+                                <tr>
+                                    <th>Start Game</th>
+                                    <th>End Game</th>
+                                    <th>Length</th>
+                                </tr>
+                            </thead>
+                            <tbody id="winStreakTable">
+                                {% for streak in stats.win_streaks %}
+                                <tr class="win-row">
+                                    <td>#{{ streak.start }}</td>
+                                    <td>#{{ streak.end }}</td>
+                                    <td>{{ streak.length }} games</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h3>Losing Streaks Details</h3>
+                    <div class="table-responsive">
+                        <table class="streak-table">
+                            <thead>
+                                <tr>
+                                    <th>Start Game</th>
+                                    <th>End Game</th>
+                                    <th>Length</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lossStreakTable">
+                                {% for streak in stats.loss_streaks %}
+                                <tr class="loss-row">
+                                    <td>#{{ streak.start }}</td>
+                                    <td>#{{ streak.end }}</td>
+                                    <td>{{ streak.length }} games</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Initialize charts
+        function initCharts(winStreaks, lossStreaks) {
+            // Winning streaks chart
+            const winCtx = document.getElementById('winStreakChart').getContext('2d');
+            const winChart = new Chart(winCtx, {
+                type: 'bar',
+                data: {
+                    labels: winStreaks.map((_, i) => `Streak ${i+1}`),
+                    datasets: [{
+                        label: 'Winning Streak Length',
+                        data: winStreaks.map(streak => streak.length),
+                        backgroundColor: 'rgba(46, 204, 113, 0.7)',
+                        borderColor: 'rgba(46, 204, 113, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#e6e6e6'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#e6e6e6'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e6e6e6'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Losing streaks chart
+            const lossCtx = document.getElementById('lossStreakChart').getContext('2d');
+            const lossChart = new Chart(lossCtx, {
+                type: 'bar',
+                data: {
+                    labels: lossStreaks.map((_, i) => `Streak ${i+1}`),
+                    datasets: [{
+                        label: 'Losing Streak Length',
+                        data: lossStreaks.map(streak => streak.length),
+                        backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                        borderColor: 'rgba(231, 76, 60, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: '#e6e6e6'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: '#e6e6e6'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e6e6e6'
+                            }
+                        }
+                    }
+                }
+            });
+
+            return { winChart, lossChart };
+        }
+
+        // Filter streaks
+        function filterStreaks(winFilter, lossFilter) {
+            // Filter winning streaks
+            const winStreaks = Array.from(document.querySelectorAll('#winStreakTable tr'));
+            winStreaks.forEach(row => {
+                if (row.cells.length < 3) return;
+                const length = parseInt(row.cells[2].textContent.split(' ')[0]);
+                if (length > winFilter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            // Filter losing streaks
+            const lossStreaks = Array.from(document.querySelectorAll('#lossStreakTable tr'));
+            lossStreaks.forEach(row => {
+                if (row.cells.length < 3) return;
+                const length = parseInt(row.cells[2].textContent.split(' ')[0]);
+                if (length > lossFilter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get streak data from table
+            const winStreaks = Array.from(document.querySelectorAll('#winStreakTable tr'))
+                .filter(row => row.cells.length >= 3)
+                .map(row => ({
+                    start: parseInt(row.cells[0].textContent.replace('#', '')),
+                    end: parseInt(row.cells[1].textContent.replace('#', '')),
+                    length: parseInt(row.cells[2].textContent.split(' ')[0])
+                }));
+
+            const lossStreaks = Array.from(document.querySelectorAll('#lossStreakTable tr'))
+                .filter(row => row.cells.length >= 3)
+                .map(row => ({
+                    start: parseInt(row.cells[0].textContent.replace('#', '')),
+                    end: parseInt(row.cells[1].textContent.replace('#', '')),
+                    length: parseInt(row.cells[2].textContent.split(' ')[0])
+                }));
+
+            // Initialize charts
+            if (winStreaks.length > 0 || lossStreaks.length > 0) {
+                initCharts(winStreaks, lossStreaks);
+            }
+
+            // Apply initial filters
+            const winFilter = parseInt(document.getElementById('winFilter').value) || 3;
+            const lossFilter = parseInt(document.getElementById('lossFilter').value) || 3;
+            filterStreaks(winFilter, lossFilter);
+
+            // Filter button event
+            document.getElementById('applyFilters').addEventListener('click', function() {
+                const winFilter = parseInt(document.getElementById('winFilter').value) || 0;
+                const lossFilter = parseInt(document.getElementById('lossFilter').value) || 0;
+                filterStreaks(winFilter, lossFilter);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Environment variables - with detailed debugging
+# Environment variables
 def get_env_vars():
     """Get and log environment variables"""
     env_vars = {
@@ -148,6 +148,83 @@ def get_game_data():
         traceback.print_exc()
         return []
 
+def calculate_streaks(games):
+    """Calculate winning and losing streaks from game data"""
+    stats = {
+        'longest_win_streak': 0,
+        'longest_loss_streak': 0,
+        'highest_multiplier': 0,
+        'win_streaks': [],
+        'loss_streaks': []
+    }
+    
+    if not games:
+        return stats
+    
+    # Sort games by ID (chronological order)
+    sorted_games = sorted(games, key=lambda x: x['id'])
+    
+    # Calculate streaks
+    current_streak = 0
+    current_type = None
+    streak_start = sorted_games[0]['id']
+    
+    # Find highest multiplier
+    stats['highest_multiplier'] = max(game['multiplier'] for game in sorted_games)
+    
+    for game in sorted_games:
+        is_win = game['multiplier'] >= 1.5
+        
+        if current_type is None:
+            current_type = is_win
+            current_streak = 1
+        elif current_type == is_win:
+            current_streak += 1
+        else:
+            # Record completed streak
+            streak = {
+                'start': streak_start,
+                'end': game['id'] - 1,
+                'length': current_streak,
+                'type': 'win' if current_type else 'loss'
+            }
+            
+            if current_type:  # Win streak
+                stats['win_streaks'].append(streak)
+                if current_streak > stats['longest_win_streak']:
+                    stats['longest_win_streak'] = current_streak
+            else:  # Loss streak
+                stats['loss_streaks'].append(streak)
+                if current_streak > stats['longest_loss_streak']:
+                    stats['longest_loss_streak'] = current_streak
+            
+            # Start new streak
+            current_streak = 1
+            current_type = is_win
+            streak_start = game['id']
+    
+    # Handle the last streak
+    streak = {
+        'start': streak_start,
+        'end': sorted_games[-1]['id'],
+        'length': current_streak,
+        'type': 'win' if current_type else 'loss'
+    }
+    if current_type:
+        stats['win_streaks'].append(streak)
+        if current_streak > stats['longest_win_streak']:
+            stats['longest_win_streak'] = current_streak
+    else:
+        stats['loss_streaks'].append(streak)
+        if current_streak > stats['longest_loss_streak']:
+            stats['longest_loss_streak'] = current_streak
+    
+    # Sort streaks by length
+    stats['win_streaks'] = sorted(stats['win_streaks'], key=lambda x: x['length'], reverse=True)
+    stats['loss_streaks'] = sorted(stats['loss_streaks'], key=lambda x: x['length'], reverse=True)
+    
+    return stats
+
 @app.route('/')
 def index():
     """Show game history"""
@@ -165,6 +242,17 @@ def game_details(game_id):
     return render_template('game_details.html', 
                            game_id=game_id,
                            SHEET_ID=SHEET_ID)
+
+@app.route('/visualize')
+def visualize():
+    """Data visualization dashboard"""
+    games = get_game_data()
+    stats = calculate_streaks(games)
+    return render_template('visualize.html', 
+                          stats=stats,
+                          game_count=len(games),
+                          MAX_GAMES=MAX_GAMES,
+                          SHEET_ID=SHEET_ID)
 
 @app.route('/debug')
 def debug_info():
