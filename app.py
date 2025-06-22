@@ -40,7 +40,7 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 MAX_GAMES = 5000
 
 def authenticate_google_sheets():
-    """Authenticate with Google Sheets with detailed debugging"""
+    """Authenticate with Google Sheets"""
     logger.info("Authenticating with Google Sheets...")
     
     try:
@@ -73,7 +73,7 @@ def authenticate_google_sheets():
         return None
 
 def get_game_data():
-    """Retrieve game data from Google Sheets with detailed logging"""
+    """Retrieve game data from Google Sheets"""
     logger.info("Retrieving game data from Google Sheets...")
     
     if not SHEET_ID:
@@ -94,20 +94,13 @@ def get_game_data():
             logger.error(f"Spreadsheet with ID {SHEET_ID[:5]}...{SHEET_ID[-5:]} not found!")
             return []
         
-        # Create worksheet if it doesn't exist
+        # Access worksheet
         try:
             logger.info("Accessing 'Games' worksheet")
             games_sheet = sh.worksheet("Games")
         except gspread.WorksheetNotFound:
-            logger.info("'Games' worksheet not found - creating a new one")
-            try:
-                games_sheet = sh.add_worksheet(title="Games", rows=100, cols=4)
-                games_sheet.append_row(["Game ID", "Multiplier", "Date", "Scraped At"])
-                logger.info("Created new 'Games' worksheet with headers")
-                return []  # Return empty since we just created it
-            except Exception as e:
-                logger.error(f"Failed to create worksheet: {str(e)}")
-                return []
+            logger.error("'Games' worksheet not found")
+            return []
         except gspread.APIError as e:
             logger.error(f"Google Sheets API error: {str(e)}")
             return []
