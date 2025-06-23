@@ -37,7 +37,7 @@ env = get_env_vars()
 SHEET_ID = env['SHEET_ID']
 PORT = int(env['PORT'])
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-MAX_GAMES = 5000
+MAX_GAMES = 100000  # Increased to 100,000
 DEFAULT_THRESHOLD = 2.0  # Default win threshold
 
 def authenticate_google_sheets():
@@ -74,7 +74,7 @@ def authenticate_google_sheets():
         return None
 
 def get_game_data():
-    """Retrieve game data from Google Sheets"""
+    """Retrieve game data from Google Sheets with duplicate prevention"""
     logger.info("Retrieving game data from Google Sheets...")
     
     if not SHEET_ID:
@@ -119,13 +119,22 @@ def get_game_data():
             logger.info("Sheet has headers but no game data yet")
             return []
         
-        # Format data
+        # Format data with duplicate prevention
+        seen_ids = set()
         games = []
         for i, row in enumerate(all_games[1:][:MAX_GAMES]):  # Skip header
             if len(row) >= 4:
                 try:
+                    game_id = int(row[0])
+                    
+                    # Skip duplicate game IDs
+                    if game_id in seen_ids:
+                        logger.warning(f"Duplicate game ID skipped: {game_id}")
+                        continue
+                    seen_ids.add(game_id)
+                    
                     games.append({
-                        'id': int(row[0]),
+                        'id': game_id,
                         'multiplier': float(row[1]) if row[1] else 0.0,
                         'date': row[2],
                         'scraped_at': row[3]
@@ -236,15 +245,28 @@ def calculate_streaks(games, win_threshold=DEFAULT_THRESHOLD):
 
 @app.route('/')
 def index():
-    """Show game history"""
+    """Show game history with pagination"""
     games = get_game_data()
     game_count = len(games)
+    
+    # Pagination - 500 games per page
+    page = request.args.get('page', 1, type=int)
+    per_page = 500
+    
+    # Calculate pagination indices
+    total_pages = (game_count + per_page - 1) // per_page
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated_games = games[start_idx:end_idx]
+    
     return render_template('index.html', 
-                           games=games,
+                           games=paginated_games,
                            game_count=game_count,
                            MAX_GAMES=MAX_GAMES,
                            SHEET_ID=SHEET_ID,
-                           win_threshold=DEFAULT_THRESHOLD)
+                           win_threshold=DEFAULT_THRESHOLD,
+                           current_page=page,
+                           total_pages=total_pages)
 
 @app.route('/game/<int:game_id>')
 def game_details(game_id):
@@ -264,7 +286,8 @@ def visualize():
                           stats=stats,
                           game_count=len(games),
                           MAX_GAMES=MAX_GAMES,
-                          SHEET_ID=SHEET_ID)
+                          SHEET_ID=SHEET_ID,
+                          win_threshold=win_threshold)
 
 @app.route('/debug')
 def debug_info():

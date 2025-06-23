@@ -104,6 +104,14 @@
         .gap-row {
             background-color: rgba(241, 196, 15, 0.1);
         }
+        .show-more-btn {
+            margin-top: 15px;
+            background-color: #3498db;
+            border: none;
+        }
+        .show-more-btn:hover {
+            background-color: #2980b9;
+        }
     </style>
 </head>
 <body>
@@ -221,7 +229,7 @@
         <div class="row">
             <div class="col-md-6">
                 <div class="chart-container">
-                    <h3>Winning Streaks Details</h3>
+                    <h3>Winning Streaks Details <span class="badge bg-success">{{ stats.win_streaks|length }} streaks</span></h3>
                     <div class="table-responsive">
                         <table class="streak-table">
                             <thead>
@@ -242,11 +250,16 @@
                             </tbody>
                         </table>
                     </div>
+                    {% if stats.win_streaks|length > 10 %}
+                    <button class="btn btn-primary show-more-btn w-100" data-table="winStreakTable">
+                        <i class="fas fa-plus-circle me-2"></i> Show More
+                    </button>
+                    {% endif %}
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="chart-container">
-                    <h3>Losing Streaks Details</h3>
+                    <h3>Losing Streaks Details <span class="badge bg-danger">{{ stats.loss_streaks|length }} streaks</span></h3>
                     <div class="table-responsive">
                         <table class="streak-table">
                             <thead>
@@ -267,6 +280,11 @@
                             </tbody>
                         </table>
                     </div>
+                    {% if stats.loss_streaks|length > 10 %}
+                    <button class="btn btn-primary show-more-btn w-100" data-table="lossStreakTable">
+                        <i class="fas fa-plus-circle me-2"></i> Show More
+                    </button>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -274,10 +292,10 @@
         <!-- Missing Games Section -->
         {% if stats.gaps %}
         <div class="chart-container">
-            <h3><i class="fas fa-search-minus"></i> Missing Game IDs</h3>
+            <h3><i class="fas fa-search-minus"></i> Missing Game IDs <span class="badge bg-warning text-dark">{{ stats.gaps|length }} gaps</span></h3>
             <p>Detected {{ stats.gaps|length }} gaps in game sequence</p>
             <div class="table-responsive">
-                <table class="streak-table">
+                <table class="streak-table" id="gapTable">
                     <thead>
                         <tr>
                             <th>Start ID</th>
@@ -296,6 +314,11 @@
                     </tbody>
                 </table>
             </div>
+            {% if stats.gaps|length > 10 %}
+            <button class="btn btn-primary show-more-btn w-100" data-table="gapTable">
+                <i class="fas fa-plus-circle me-2"></i> Show More
+            </button>
+            {% endif %}
         </div>
         {% endif %}
         {% endif %}
@@ -459,6 +482,27 @@
                 const winFilter = parseInt(document.getElementById('winFilter').value) || 0;
                 const lossFilter = parseInt(document.getElementById('lossFilter').value) || 0;
                 filterStreaks(winFilter, lossFilter);
+            });
+            
+            // Show More functionality for tables
+            document.querySelectorAll('.show-more-btn').forEach(button => {
+                const tableId = button.getAttribute('data-table');
+                const table = document.getElementById(tableId);
+                const rows = table.querySelectorAll('tbody tr');
+                
+                // Hide rows beyond the first 10
+                for (let i = 10; i < rows.length; i++) {
+                    rows[i].style.display = 'none';
+                }
+                
+                button.addEventListener('click', () => {
+                    // Show all rows
+                    for (let i = 10; i < rows.length; i++) {
+                        rows[i].style.display = '';
+                    }
+                    // Hide the button
+                    button.style.display = 'none';
+                });
             });
         });
     </script>

@@ -112,6 +112,19 @@
             padding: 5px 10px;
             font-size: 0.9rem;
         }
+        .pagination .page-item .page-link {
+            background-color: #16213e;
+            border: 1px solid #2d3747;
+            color: #3498db;
+        }
+        .pagination .page-item.active .page-link {
+            background-color: #3498db;
+            border-color: #3498db;
+        }
+        .pagination .page-item.disabled .page-link {
+            background-color: #1a2a4d;
+            color: #95a5a6;
+        }
     </style>
 </head>
 <body>
@@ -203,6 +216,40 @@
             </div>
             {% endfor %}
         </div>
+        
+        <!-- Pagination -->
+        {% if total_pages > 1 %}
+        <div class="d-flex justify-content-center mt-4">
+            <nav>
+                <ul class="pagination">
+                    {% if current_page > 1 %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ current_page - 1 }}" aria-label="Previous">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                    
+                    {% for p in range(1, total_pages + 1) %}
+                    <li class="page-item {% if p == current_page %}active{% endif %}">
+                        <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+                    </li>
+                    {% endfor %}
+                    
+                    {% if current_page < total_pages %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ current_page + 1 }}" aria-label="Next">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        <div class="text-center text-muted mt-2">
+            Page {{ current_page }} of {{ total_pages }} | Showing {{ games|length }} of {{ game_count }} games
+        </div>
+        {% endif %}
         {% endif %}
     </div>
 
