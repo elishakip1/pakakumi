@@ -37,7 +37,7 @@ env = get_env_vars()
 SHEET_ID = env['SHEET_ID']
 PORT = int(env['PORT'])
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-MAX_GAMES = 100000  # Increased to 100,000
+MAX_GAMES = 100000
 DEFAULT_THRESHOLD = 2.0  # Default win threshold
 
 def authenticate_google_sheets():
@@ -160,7 +160,12 @@ def calculate_streaks(games, win_threshold=DEFAULT_THRESHOLD):
         'win_streaks': [],
         'loss_streaks': [],
         'gaps': [],
-        'win_threshold': win_threshold
+        'win_threshold': win_threshold,
+        'total_games': 0,
+        'total_wins': 0,
+        'total_losses': 0,
+        'total_streak_games': 0,
+        'total_missing_games': 0
     }
     
     if not games:
@@ -168,6 +173,11 @@ def calculate_streaks(games, win_threshold=DEFAULT_THRESHOLD):
     
     # Sort games by ID (chronological order)
     sorted_games = sorted(games, key=lambda x: x['id'])
+    stats['total_games'] = len(sorted_games)
+    
+    # Calculate wins and losses
+    stats['total_wins'] = sum(1 for game in sorted_games if game['multiplier'] >= win_threshold)
+    stats['total_losses'] = stats['total_games'] - stats['total_wins']
     
     # Find highest multiplier
     stats['highest_multiplier'] = max(game['multiplier'] for game in sorted_games)
@@ -187,6 +197,7 @@ def calculate_streaks(games, win_threshold=DEFAULT_THRESHOLD):
                 'end': game['id'] - 1,
                 'length': gap_length
             })
+            stats['total_missing_games'] += gap_length
         prev_id = game['id']
     
     # Calculate streaks
@@ -240,6 +251,9 @@ def calculate_streaks(games, win_threshold=DEFAULT_THRESHOLD):
     # Sort streaks by length
     stats['win_streaks'] = sorted(stats['win_streaks'], key=lambda x: x['length'], reverse=True)
     stats['loss_streaks'] = sorted(stats['loss_streaks'], key=lambda x: x['length'], reverse=True)
+    
+    # Calculate total games in streaks
+    stats['total_streak_games'] = stats['total_games']
     
     return stats
 
